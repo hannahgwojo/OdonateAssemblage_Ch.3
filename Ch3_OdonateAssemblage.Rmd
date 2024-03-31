@@ -1,0 +1,506 @@
+---
+title: "Thesis Ch. 3 Code"
+author: "Hannah Girgente"
+date: "2024-03-31"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r Working Directory}
+setwd("E:/McIntyre_Lab/Thesis/Data/OdonateCommunity")
+```
+
+## Packages used:
+```{r packages, warning=FALSE}
+library(BiodiversityR)
+library(labdsv)
+library(MASS)
+library(MVA)
+library(vegan)
+library(plyr)
+library(betapart)
+library(ggplot2)
+library(ggrepel)
+library(grid)
+library(corrplot)
+library(lattice)
+library(picante)
+library(stats)
+library(sars)
+library(dplyr)
+library(optpart)
+library(cluster)
+```
+
+## Data used
+```{r data}
+#Data that includes adults seen at each site
+odes <- read.csv("odes-withadult.csv", row.names = 1, header = T)
+View(odes) 
+
+#Data for only the nymphs sampled at each site
+odes.comm <- read.csv("nmds_odes.csv", row.names = 1, header = T)
+View(odes.comm)
+
+ode.matrix <- as.matrix(odes.comm) #convert the nymph dataset to a matrix
+
+#All site types (steephead or not)
+sites <- read.csv("oa_sites.csv", row.names = 1, header = T)
+
+#Sites types, exclusing sites that had no nymphs sampled at them
+sites.nmds <- read.csv("oa_sites-nmds.csv", row.names = 1, header = T)
+View(sites.nmds)
+
+#Environmental data for each site
+env <- read.csv("nmds_env.t.csv", row.names = 1, header = T)
+env_scale <- scale(env, center = F, scale = T) #scale the data, but not centered to avoid negatives
+env_matrix <- as.matrix(env_scale) #convert the data frame into a matrix
+View(env_matrix)
+
+#Environmental data (without the stream comp) for correlation analyses
+corr.env <- read.csv("corr_env.trans.csv", row.names = 1, header = T)
+corr.env.s <- scale(corr.env, center = F, scale = T) #scale the data
+View(corr.env.s)
+
+```
+
+# Species richness and diversity indicies
+```{r diversity}
+#Species richness per site
+ode.rich <- specnumber(odes)
+ode.rich
+
+#Richness estimate
+sp_est <- specpool(odes) 
+sp_est
+
+#Examine the richness across steephead and non-steephead sites
+ode.sp <- specpool(odes, pool = sites$type)
+ode.sp
+
+#Richness and estimates for steephead sites
+ode.sp["Steephead",]
+
+#Richness and estimates for non-steephead sites
+ode.sp["Non-Steephead",]
+
+#If you want a particular richness metric for all stream types
+ode.sp[,c("boot", "boot.se")]
+
+#species accumulation curves for estimates of total species richness based on 
+#iterative sampling with confidence intervals:
+(ode.sp = poolaccum(odes))
+plot(ode.sp)
+
+#To plot just one of these metrics on their own:
+ode.est <- poolaccum(odes)
+ode.est
+plot(ode.est, col="black", 
+     strip=function(..., bg) strip.default(..., bg="gray90"), 
+     display=c("boot", "S"))
+
+#Which stream type was the most diverse
+#Plot the average number of species at each steephead vs non-steephead site
+boxplot(specnumber(odes) ~ type, data = sites, xlab= "Stream type", 
+        ylab = "# of species")
+
+#Calculate the shannon's diversity index for each site
+diversity(odes[-1], index = "shannon")
+
+sites.2 <- read.csv("oa_sites.csv", row.names = 1, stringsAsFactors = T)
+
+#Shannon's diversity index for each stream type
+diversitycomp(odes, y = sites.2, factor1 = "type", index ="Shannon",
+              method = "pooled")
+
+#Which stream type had individuals the most evenly distributed over space
+diversitycomp(odes, y=sites.2, factor1="type", index="Jevenness", 
+              method = "pooled")
+
+#Which stream type had the highest alpha diversity
+alpha <- tapply(specnumber(odes), sites, FUN= mean)
+alpha
+
+#How similar were steephead sites to non-steephead sites (beta diversity)
+ode <- rowsum(odes, group= sites$type)
+betadiver(ode, method="w")
+
+
+
+#Is beta diversity significantly different between steepheads and non-steepheads?
+ode.b <- betadiver(odes, method = "w")
+ode.ano <- anosim(ode.b, sites$type)
+ode.ano
+
+
+#Check if any sites are outliers with respect to ode richness
+occupancy <- read.csv("nmds_odes.csv", header=TRUE)
+boxplot(specnumber(occupancy), xlab = "Sites 1-23", ylab = "# of species")
+
+ano <- anosim(ode.matrix, sites.nmds$type, distance = "bray", permutations = 9999)
+ano
+
+#species occurrence patterns
+abuocc(odes)
+```
+
+# Mantel Tests
+### (test to see if any environmental variables have a statistically significant impact on odonate assemblage structure)
+```{r mantel tests}
+
+### Canopy ###
+canopy <- env_matrix[,1]
+View(canopy)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.can <- dist(canopy, method = "euclidean")
+ode.can <- mantel(dist.ode, dist.can, method = "spearman", permutations = 9999, na.rm = T)
+ode.can
+### p= 0.0561
+
+### Temperature ###
+temp <- env_matrix[,2]
+View(temp)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.temp <- dist(temp, method = "euclidean")
+ode.temp <- mantel(dist.ode, dist.temp, method = "spearman", permutations = 9999, na.rm = T)
+ode.temp
+
+### Velocity ###
+v <- env_matrix[,3]
+View(v)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.v <- dist(v, method = "euclidean")
+ode.v <- mantel(dist.ode, dist.v, method = "spearman", permutations = 9999, na.rm = T)
+ode.v
+
+### pH ###
+ph <- env_matrix[,4]
+View(ph)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.ph <- dist(ph, method = "euclidean")
+ode.ph <- mantel(dist.ode, dist.ph, method = "spearman", permutations = 9999, na.rm = T)
+ode.ph
+
+### DO ###
+do <- env_matrix[,5]
+View(do)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.do <- dist(do, method = "euclidean")
+ode.do <- mantel(dist.ode, dist.do, method = "spearman", permutations = 9999, na.rm = T)
+ode.do
+
+### TDS ###
+tds <- env_matrix[,6]
+View(tds)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.tds <- dist(tds, method = "euclidean")
+ode.tds <- mantel(dist.ode, dist.tds, method = "spearman", permutations = 9999, na.rm = T)
+ode.tds
+
+### Width ###
+wid <- env_matrix[,7]
+View(wid)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.wid <- dist(wid, method = "euclidean")
+ode.wid <- mantel(dist.ode, dist.wid, method = "spearman", permutations = 9999, na.rm = T)
+ode.wid
+# p=0.0566
+
+### Turbidity ###
+turb <- env_matrix[,8]
+View(turb)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.turb <- dist(turb, method = "euclidean")
+ode.turb <- mantel(dist.ode, dist.turb, method = "spearman", permutations = 9999, na.rm = T)
+ode.turb
+
+### Depth ###
+dep <- env_matrix[,9]
+View(dep)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.dep <- dist(dep, method = "euclidean")
+ode.dep <- mantel(dist.ode, dist.dep, method = "spearman", permutations = 9999, na.rm = T)
+ode.dep
+
+### Sand ###
+sand <- env_matrix[,10]
+View(sand)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.sand <- dist(sand, method = "euclidean")
+ode.sand <- mantel(dist.ode, dist.sand, method = "spearman", permutations = 9999, na.rm = T)
+ode.sand
+
+### Gravel ###
+grv <- env_matrix[,11]
+View(grv)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.grv <- dist(grv, method = "euclidean")
+ode.grv <- mantel(dist.ode, dist.grv, method = "spearman", permutations = 9999, na.rm = T)
+ode.grv
+
+### Cobble ###
+cob <- env_matrix[,12]
+View(cob)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.cob <- dist(cob, method = "euclidean")
+ode.cob <- mantel(dist.ode, dist.cob, method = "spearman", permutations = 9999, na.rm = T)
+ode.cob
+
+### Boulders ###
+bo <- env_matrix[,13]
+View(bo)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.bo <- dist(bo, method = "euclidean")
+ode.bo <- mantel(dist.ode, dist.bo, method = "spearman", permutations = 9999, na.rm = T)
+ode.bo
+
+### fpom ###
+fpom <- env_matrix[,14]
+View(fpom)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.fpom <- dist(fpom, method = "euclidean")
+ode.fpom <- mantel(dist.ode, dist.fpom, method = "spearman", permutations = 9999, na.rm = T)
+ode.fpom
+
+### cpom ###
+cpom <- env_matrix[,15]
+View(cpom)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.cpom <- dist(cpom, method = "euclidean")
+ode.cpom <- mantel(dist.ode, dist.cpom, method = "spearman", permutations = 9999, na.rm = T)
+ode.cpom
+
+### Bryophytes ###
+bry <- env_matrix[,16]
+View(bry)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.bry <- dist(bry, method = "euclidean")
+ode.bry <- mantel(dist.ode, dist.bry, method = "spearman", permutations = 9999, na.rm = T)
+ode.bry
+
+### Small wood ###
+sw <- env_matrix[,17]
+View(sw)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.sw <- dist(sw, method = "euclidean")
+ode.sw <- mantel(dist.ode, dist.sw, method = "spearman", permutations = 9999, na.rm = T)
+ode.sw
+
+### Large wood ###
+lw <- env_matrix[,18]
+View(lw)
+dist.ode <- vegdist(ode.matrix, method = "bray", binary = T)
+dist.lw <- dist(lw, method = "euclidean")
+ode.lw <- mantel(dist.ode, dist.lw, method = "spearman", permutations = 9999, na.rm = T)
+ode.lw
+
+### Cumulative effect of all environmental variables ###
+dist.env <- dist(env_matrix, method = "euclidean")
+ode.env <- mantel(dist.ode, dist.env, method = "spearman", permutations = 9999, na.rm = T)
+ode.env
+
+```
+
+# Non-metric Multidimensional Scaling (NMDS) ordination
+```{r NMDS}
+set.seed(123) #make the result repeatable
+
+#run the NMDS ordination for binary data using the matrix you made in the matel test section
+meta.ode <- metaMDS(ode.matrix, distance = "bray", k= 3, 
+                    binary = T, weakties = F, autotransform = F)
+meta.ode
+plot(meta.ode)
+#extract the data scores into a data frame
+data.scores <- as.data.frame(scores(meta.ode)$sites)
+#add the stream type to the data frame for each site
+data.scores$type <- sites.nmds$type
+
+#see which # of dimensions results in the largest descrease in stress
+for(i in 2:5) print(metaMDS(ode.matrix, distance = "bray", k=i,
+                            binary = T, weakties = F, autotransform = F, trace = F)$stress*100)
+#3 dimensions is best
+
+#Plot the stress values by # of dimensions
+stressplot(meta.ode)
+
+## Plot the site x species NMDS in ggplot ##
+nmds.plot <- ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(size = 4, aes(shape = type, color = type)) +     # make point shape/color correlate to stream type
+  theme(axis.text.y = element_text(colour = "black", size = 12, face = "bold"), 
+        axis.text.x = element_text(colour = "black", face = "bold", size = 12), 
+        legend.text = element_text(size = 12, face ="bold", colour ="black"), 
+        legend.position = "right", axis.title.y = element_text(face = "bold", size = 14), 
+        axis.title.x = element_text(face = "bold", size = 14, colour = "black"), 
+        legend.title = element_text(size = 14, colour = "black", face = "bold"), 
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, linewidth = 1.2),
+        legend.key=element_blank()) + 
+  labs(x = "NMDS1", color = "Type", y = "NMDS2", shape = "Type")  +     #Add a legend 
+  scale_colour_manual(values = c("#009E73", "#E69F00"))
+
+nmds.plot
+
+
+## envfit to add environmental data to the NMDS plot ##
+
+#Correlation analyses to decide if any metrics should be removed
+env_cor <- corr.env
+env_cor <- as.matrix(corr.env)
+env_cor <- na.omit(env_cor) #remove rows with empty values
+cor_mat <- cor(env_cor, method = 'pearson') #use pearson method to construct correlation matrix
+corrplot(cor_mat, method = "number", type = "lower", diag = F, tl.col = "black") #plot the lower half of the correlation matrix
+#remove spc due to high correlation with tds
+
+#create environmental vectors for each variable to fit onto NMDS plot
+en <- envfit(meta.ode, env_matrix, permutations = 999, na.rm = T) #use env_matrix object from the mantel tests earlier
+en
+
+#make the length of vector related to strength of correlation
+en_coord <- as.data.frame(scores(en, "vectors")) * ordiArrowMul(en) 
+
+#Plot the nmds with the environmental data fitted to it
+nmds.env <- ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(data = data.scores, size = 4, aes(shape = type, color = type)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2),  # Add the environmental vectors as line segments
+               data = en_coord, linewidth =1, alpha = 0.5, color = "grey30") +
+  geom_text_repel(data = en_coord, aes(x = NMDS1, y = NMDS2), color = "grey30", 
+                  fontface = "bold", label = row.names(en_coord)) +
+  annotate(geom = "label", x = -1, y = 1.25, size = 5,
+           label = paste("Stress: ", round(meta.ode$stress, digits = 3))) +  #Add the stress value to the plot
+  theme(axis.text.y = element_text(colour = "black", size = 12, face = "bold"), 
+        axis.text.x = element_text(colour = "black", face = "bold", size = 12), 
+        legend.text = element_text(size = 12, face ="bold", colour ="black"), 
+        legend.position = "right", axis.title.y = element_text(face = "bold", size = 14), 
+        axis.title.x = element_text(face = "bold", size = 14, colour = "black"), 
+        legend.title = element_text(size = 14, colour = "black", face = "bold"), 
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, linewidth = 1.2),
+        legend.key=element_blank()) + 
+  labs(x = "NMDS1", color = "Type", y = "NMDS2", shape = "Type")  +     #Legend
+  scale_colour_manual(values = c("#009E73", "#E69F00"))
+nmds.env
+```
+
+# Cluster analysis
+### (see how sites group together by assemblage structure and by environmental data)
+```{r cluster}
+### Environmental data ###
+env_clust <- hclust(dist.env, method = "average")
+plot(env_clust, xlab = "Site by environment", ylab = "Euclidean dissimilarity", hang = -2)
+
+#See how correlated dissimilarity matrix is with the conphenetic dist. 
+#(how well does our dendrogram fit our data)
+env.conph <- cophenetic(env_clust)
+cor(dist.env, env.conph)
+
+# Silhouette plot
+envpam <- pam(dist.env, k=2)
+attributes(envpam)
+
+envpam$medoids
+envpam$clustering
+plot(envpam)
+
+clusplot(envpam, labels = 2, cex = 0.65)
+
+### Odonate data ###
+#Create a dissimilarity matrix for the odonate data at each site using bray-curtis
+clust.dist <- vegdist(odes, method = "bray", binary = T)
+
+#Make a hierarchical cluster dendrogram, using average linkage
+odes.clust <- hclust(clust.dist, method = "average")
+plot(odes.clust, xlab = "Site by species", ylab = "Bray-Curtis' dissimilarity", hang = -2) #use hang to bring the site names in line with each other
+
+#Calculate the distance at which each each object merges with another on the dendrogram
+comm.coph <- cophenetic(odes.clust)
+
+#See how correlated dissimilarity matrix is with the conphenetic dist. 
+#(how well does our dendrogram fit our data)
+cor(clust.dist, comm.coph) #pretty good fit
+
+odepam <- pam(clust.dist, k=3)
+attributes(odepam)
+
+odepam$medoids
+odepam$clustering
+plot(odepam)
+
+clusplot(odepam, labels = 3, cex = 0.65)
+```
+
+# Stacked species richness plot
+### separated by life stage (adult and nymphs documented at each site)
+```{r stacked plot}
+#Create data frame for species richness separated by adult and nymph species at each site
+#Make an object containing all the sites sampled
+sites.graph <- c("RES01", "RES01", "RES03", "RES03", "RES04", "RES04","RES05",
+                 "RES05", "WB01", "WB01", "TRSF01", "TRSF01", "BB01", "BB01", 
+                 "CCR01", "CCR01","LCWMA01", "LCWMA01", "LCWMA02","LCWMA02", 
+                 "LCWMA03","LCWMA03", "JB01", "JB01","PB01","PB01", "EAFB01", 
+                 "EAFB01", "EAFB02", "EAFB02", "EAFB03","EAFB03","BRSF01", 
+                 "BRSF01", "BC01", "BC01", "LTSF01","LTSF01", "LTSF02", "LTSF02",
+                 "ARBP01", "ARBP01","TSP01", "TSP01", "TSP02", "TSP02","CB01", "CB01")
+# repeat each site twice, once for nymphal observations and another for adult
+sites.graph
+
+#Create a data frame with sites on x and its associated adult/nymphal species richness on y
+ode.comm <- data.frame(Site = sites.graph, sp.rich = c(3,0,3,0,5,3,2,0,8,0,5,1,2,
+                                                       0,2,0,6,3,1,4,10,4,5,4,1,
+                                                       4,8,5,4,0,0,3,7,0,6,1,12,
+                                                       0,3,2,11,11,5,3,1,1,9,3))
+#Add a column to the data frame for life stage for each value of richness at a site
+ode.comm$stage <- c("Nymph", "Adult", "Nymph", "Adult", "Nymph", "Adult", 
+                    "Nymph", "Adult", "Nymph", "Adult", "Nymph", "Adult", 
+                    "Nymph", "Adult", "Nymph", "Adult", "Nymph", "Adult",  
+                    "Nymph", "Adult", "Nymph", "Adult", "Nymph", "Adult", 
+                    "Nymph", "Adult", "Nymph", "Adult", "Nymph", "Adult",
+                    "Nymph", "Adult", "Nymph", "Adult","Nymph", "Adult",
+                    "Nymph", "Adult","Nymph", "Adult","Nymph", "Adult",
+                    "Nymph", "Adult","Nymph", "Adult","Nymph", "Adult")
+# alternate adult nymph so that each site has an adult and a nymph column
+ode.comm
+
+#Make Site a factor and arrange the sites so that all non-steepheads are together 
+#on the left and all steepheads are together on the right
+ode.comm$Site <- factor(ode.comm$Site, levels = c("RES01", "RES03", "RES04",
+                                                  "RES05","WB01", "TRSF01", 
+                                                  "BB01", "CCR01","LCWMA01", 
+                                                  "LCWMA02","LCWMA03","JB01",
+                                                  "PB01","EAFB01", "EAFB02", 
+                                                  "EAFB03","BRSF01","BC01", 
+                                                  "LTSF01", "LTSF02","ARBP01",
+                                                  "TSP01","TSP02","CB01"), ordered = T)
+
+# Sort by site and life stage (adult or nymph)
+odecomm_sort <- arrange(ode.comm, Site, stage)
+head(odecomm_sort)
+
+# Calculate the cumulative sum of sp.rich for each site
+ode_cumsum <- ddply(odecomm_sort, "Site", transform, tot.rich=cumsum(sp.rich))
+
+# change the data source in ggplot to this new data frame
+
+#Stacked bar graph of species richness per site broken down to number of species
+#documented as nymphs and number of species documented as adults
+ode.plot <- ggplot(data = ode_cumsum, aes(x=Site, y=sp.rich, label=sp.rich, fill=stage)) + #color the two parts of the bar by life stage
+  geom_bar(stat = "identity") + #display the values in the data frame as is
+  geom_text(data=subset(ode.comm, sp.rich != 0), aes(y=sp.rich), 
+            position = position_stack(vjust = 0.5), color="white", size=3.5) + #Add the sp. rich values to the bars
+  scale_fill_brewer(palette = "Paired") +
+  labs(x = "Site", y = "Species richness", fill = "Life stage") + #Axis and legend labels
+  theme_classic() +
+  theme(panel.grid= element_blank(), 
+        axis.title = element_text(size = 16), 
+        legend.text = element_text(size = 16), 
+        legend.title = element_text(size = 16),
+        axis.text = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 10,
+                                 color = "black")) + #Make the axis labels vertical rather than horizontal 
+  scale_y_continuous(name = "Species richness", limits = c(0,25)) #Set the upper and lower bounds of the y axis
+ode.plot
+
+```
+
+
